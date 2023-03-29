@@ -166,16 +166,6 @@ class Camera_Caps_Window(QMainWindow):
         # return self.control_menu_frame
         return self.scroll
 
-    def clear_layout_old(self, layout: QLayout):
-        index = layout.count()
-        if index > 0:
-            index -= 1
-            while index >= 0:
-                deleteWidget = layout.itemAt(index).widget()
-                layout.removeWidget(deleteWidget)
-                deleteWidget.setParent(None)
-                index -= 1
-
     def clear_layout(self, layout: QLayout):
         self.ctrl_dict = {}         # Clear out previous ctrl groups
         child = layout.takeAt(0)

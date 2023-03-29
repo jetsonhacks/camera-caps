@@ -284,16 +284,20 @@ class Camera_Caps_Controller:
                 self.device_uri)
         if self.camera_formats is not None:
             for camera_format in self.camera_formats:
-                format_name = f"{camera_format.format_name}  -  {camera_format.pixel_format}"
+                format_name = f"{camera_format.pixel_format}"
                 item = QListWidgetItem(format_name)
                 item.camera_format = camera_format
-                # self.view.pixel_format_list.addItem(camera_format.format_name)
                 self.view.pixel_format_list.addItem(item)
         self.setup_camera_info(self.device_uri)
         video_settings = self.camera_inspector.get_camera_stream_settings(
             self.device_uri)
 
-        fourcc = video_settings[0].strip("'")
+        # String is of the format: 'YUYV' (YUYV 4:2:2)
+        try:
+            fourcc = video_settings[0].split("'")[1]
+        except Exception as exc:
+            print(video_settings[0])
+            print(exc)
         self.setup_gst_pipeline_source(fourcc)
         # setup the width, height, and frame rate
 
@@ -341,7 +345,7 @@ class Camera_Caps_Controller:
         self.gst_source = ""
         self.gst_filters = ""
         self.fourcc = fourcc
-        if camera.driver_name == 'tegra-video':
+        if camera.driver_name == 'tegra-camrtc-ca':
             sensor_id = self.device_uri.lstrip('/dev/video')
             self.gst_source = f"nvarguscamerasrc sensor-id={sensor_id}"
             self.gst_filters = "video/x-raw(memory:NVMM), width={}, height={}, framerate={}/1 ! nvvidconv ! xvimagesink"
@@ -413,7 +417,7 @@ class Camera_Caps_Controller:
                                 for fps in frame_size[1:]:
                                     fps_list_widget = QListWidgetItem(fps)
                                     fps_list.addItem(fps_list_widget)
-                                    if frame_rate is not "" and frame_rate in fps:
+                                    if frame_rate != "" and frame_rate in fps:
                                         fps_list_widget.setSelected(True)
                                         fps_list.scrollToItem(fps_list_widget)
             count -= 1
