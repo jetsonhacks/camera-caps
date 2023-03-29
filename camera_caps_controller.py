@@ -55,6 +55,11 @@ class Camera_Caps_Controller:
                 for uri in camera.uri_list:
                     entry_name = f"{camera.camera_name} on {uri}"
                     self.view.camera_combo_box.addItem(entry_name, uri)
+                    item_index = self.view.camera_combo_box.count()
+                    # Does the camera have associated formats?
+                    formats = self.camera_inspector.camera_formats(uri)
+                    if len(formats) == 0:
+                        self.view.camera_combo_box.model().item(item_index-1).setEnabled(False)
                     # Create a preview window for the camera
                     preview_window: PreviewWindow = self.view.create_preview_window()
                     preview_window.base_title = entry_name
