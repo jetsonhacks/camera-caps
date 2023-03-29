@@ -1,5 +1,7 @@
 # camera-caps
-This is a graphical user interface over the v4l2-ctl command line tool. This program supports an upcoming JetsonHacks article and video.
+This is a graphical user interface over the v4l2-ctl command line tool. This program supports the JetsonHacks article: https://jetsonhacks.com/2022/01/25/jetson-camera-coding/
+
+The main branch supports JetPack versions 4.X. There were changes to the v4l2 drivers in JetPack versions 5.X. Those changes are reflected in the 'jetpack-5.x' branch. 
 
 ### Intended Spirit
 This app is a simple software sketch built to support a demonstration. It is not fully featured, and certainly not production quality code, but you may find it useful for your own study and experimentation. 
@@ -11,8 +13,9 @@ Connected cameras show up as /dev/videoX (where X is the ID number) when connect
 
 ![Screenshot](camera-caps-screenshot.png)
 
-### Note
-Not all cameras provide a V4L2 interface. Some cameras have proprietary interfaces that are not exposed through V4L2.
+### Notes
+* If you are running JetPack 5.x, you will need to use the 'jetpack-5.x' branch.
+* Not all cameras provide a V4L2 interface. Some cameras have proprietary interfaces that are not exposed through V4L2.
 
 ### Installation
 
