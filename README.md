@@ -22,6 +22,7 @@ $ sudo apt install python3-pip
 $ pip3 install dataclasses
 # Install v4l2-ctl
 $ sudo apt install v4l-utils
+$ sudo apt install python3-pyqt5
 ```
 ###  Running the Program
 Before running the program, first make sure that the cameras you want to examine are attached. The program does not detect dynamic attachment. If you plug/unplug a camera, restart the program. Also note that USB cameras do not have a guaranteed address in their /dev/videoX designation. In other words, the address may change when the machine reboots or other cameras are added. To run:
@@ -33,6 +34,10 @@ $ python3 camera_caps.py
 The preview button attempts to build a GStreamer pipeline and run it in a preview window. The preview window is not the full size of the video image size. 
 
 ## Releases
+### March, 2023
+* Support Ubuntu 20.04/Jetson Linux 35.X
+* Added jetpack-5.x branch
+
 ### January, 2022
 * Initial Release
 * JetPack 4.6, L4T 32.6.1
