@@ -227,7 +227,7 @@ class Camera_Caps_Controller:
                 # FIXME - This try block needs work
                 print(f"Ctrl_menu has no menu type: {ctrl_menu}")
                 continue
-            if 'int' == ctrl_menu.menu_type or 'int64' == ctrl_menu.menu_type or 'u32' == ctrl_menu.menu_type:
+            if 'int' == ctrl_menu.menu_type or 'int64' == ctrl_menu.menu_type:
                 self.add_ctrl_slider(ctrl_menu)
             elif 'bool' == ctrl_menu.menu_type:
                 self.add_ctrl_bool(ctrl_menu)
@@ -571,7 +571,7 @@ class Camera_Caps_Controller:
     def is_default_value(self, reset_button):
         to_return = True
         ctrl_menu = reset_button.ctrl_menu
-        if 'int' == ctrl_menu.menu_type or 'int64' == ctrl_menu.menu_type or 'u32' == ctrl_menu.menu_type:
+        if 'int' == ctrl_menu.menu_type or 'int64' == ctrl_menu.menu_type:
             # Slider
             default_value = [
                 item[1] for item in ctrl_menu.key_value_list if item[0] == 'default'][0]
