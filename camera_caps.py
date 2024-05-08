@@ -17,7 +17,7 @@ from gi.repository import Gst
 from PyQt5.QtCore import QSize
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout,
-                             QLabel, QLayout, QLineEdit, QListWidget,
+                             QLabel, QLayout, QLineEdit, QListWidget, QCheckBox,
                              QMainWindow, QPushButton, QScrollArea,
                              QSizePolicy, QVBoxLayout, QWidget)
 
@@ -32,9 +32,7 @@ class Camera_Caps_Config:
     window_height: int = 720
     top_frame_height: int = 310
 
-
 window_configs = Camera_Caps_Config()
-
 
 class Camera_Caps_Window(QMainWindow):
 
@@ -132,8 +130,9 @@ class Camera_Caps_Window(QMainWindow):
         preview_hbox = QHBoxLayout()
         self.preview.setLayout(preview_hbox)
         self.line_edit = QLineEdit()
-        self.line_edit.setText(
-            "v4l2src device=/dev/video4 ! video/x-raw, width=640, height=480, framerate=30/1 ! xvimagesink")
+        # self.line_edit.setText(
+        #    "v4l2src device=/dev/video4 ! video/x-raw, width=640, height=480, framerate=30/1 ! xvimagesink")
+        self.line_edit.setText("")
         preview_hbox.addWidget(self.line_edit)
 
         self.copy_button = QPushButton('')
@@ -149,6 +148,10 @@ class Camera_Caps_Window(QMainWindow):
         self.preview_button.setIconSize(QSize(24, 24))   
         self.preview_button.clicked.connect(controller.preview_button_clicked)
         preview_hbox.addWidget(self.preview_button)
+
+        self.sync_flag_checkbox = QCheckBox('Synchronize Video')
+        self.sync_flag_checkbox.clicked.connect(controller.on_sync_flag_checkbox_clicked)
+        preview_hbox.addWidget(self.sync_flag_checkbox)
 
         return self.preview
 
@@ -166,16 +169,6 @@ class Camera_Caps_Window(QMainWindow):
         # return self.control_menu_frame
         return self.scroll
 
-    def clear_layout_old(self, layout: QLayout):
-        index = layout.count()
-        if index > 0:
-            index -= 1
-            while index >= 0:
-                deleteWidget = layout.itemAt(index).widget()
-                layout.removeWidget(deleteWidget)
-                deleteWidget.setParent(None)
-                index -= 1
-
     def clear_layout(self, layout: QLayout):
         self.ctrl_dict = {}         # Clear out previous ctrl groups
         child = layout.takeAt(0)
@@ -190,7 +183,6 @@ class Camera_Caps_Window(QMainWindow):
     def create_preview_window(self):
         preview_window = PreviewWindow()
         preview_window.setup()
-        # preview_window.show()
         return preview_window
 
     def closeEvent(self, event):
@@ -198,8 +190,6 @@ class Camera_Caps_Window(QMainWindow):
         for window in self.preview_windows:
             window.app_closing = True
             window.close()
-
-
 
 def main():
     Gst.init(None)
