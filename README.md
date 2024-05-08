@@ -1,7 +1,5 @@
 # camera-caps
-This is a graphical user interface over the v4l2-ctl command line tool. This program supports the JetsonHacks article: https://jetsonhacks.com/2022/01/25/jetson-camera-coding/
-
-The main branch supports JetPack versions 4.X. There were changes to the v4l2 drivers in JetPack versions 5.X. Those changes are reflected in the 'jetpack-5.x' branch. 
+This is a graphical user interface over the v4l2-ctl command line tool. This program supports an upcoming JetsonHacks article and video. There is experimental support for ROI. 
 
 ### Intended Spirit
 This app is a simple software sketch built to support a demonstration. It is not fully featured, and certainly not production quality code, but you may find it useful for your own study and experimentation. 
@@ -13,9 +11,12 @@ Connected cameras show up as /dev/videoX (where X is the ID number) when connect
 
 ![Screenshot](camera-caps-screenshot.png)
 
-### Notes
-* If you are running JetPack 5.x, you will need to use the 'jetpack-5.x' branch.
-* Not all cameras provide a V4L2 interface. Some cameras have proprietary interfaces that are not exposed through V4L2.
+### ROI
+There's a quick and dirty Region of Interest (ROI) feature. Select the camera window, then use the left mouse button to select a rectangle. The rectangle becomes the region of interest, and the camera window displays only the ROI. Press 'Esc' to remove the ROI. Only one ROI may be selected, subsequent attempts are ignored after the first.
+
+
+### Note
+Not all cameras provide a V4L2 interface. Some cameras have proprietary interfaces that are not exposed through V4L2.
 
 ### Installation
 
@@ -25,6 +26,7 @@ $ sudo apt install python3-pip
 $ pip3 install dataclasses
 # Install v4l2-ctl
 $ sudo apt install v4l-utils
+$ sudo apt install python3-pyqt5
 ```
 ###  Running the Program
 Before running the program, first make sure that the cameras you want to examine are attached. The program does not detect dynamic attachment. If you plug/unplug a camera, restart the program. Also note that USB cameras do not have a guaranteed address in their /dev/videoX designation. In other words, the address may change when the machine reboots or other cameras are added. To run:
@@ -36,6 +38,13 @@ $ python3 camera_caps.py
 The preview button attempts to build a GStreamer pipeline and run it in a preview window. The preview window is not the full size of the video image size. 
 
 ## Releases
+### May, 2024
+* Added ROI for demo purposes
+
+### March, 2023
+* Support Ubuntu 20.04/Jetson Linux 35.X
+* Added jetpack-5.x branch
+
 ### January, 2022
 * Initial Release
 * JetPack 4.6, L4T 32.6.1

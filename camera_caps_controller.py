@@ -17,15 +17,35 @@ from camera_caps_model import (Camera_Format, Camera_Inspector,
                                Control_Menu_Entry)
 from preview_window import PreviewWindow
 
+from camera_caps_dataclasses import CameraSettings, generate_capsfilter_string
+from dataclasses import replace
+
+
 
 class Command_Map:
+    # Build the gstreamer filter. [0] = media type (caps) [1] = cccc [2] = decoder [3] = output sink
+    # command_base: str = '{}, width={}, height={}, framerate={}/1, format={} {} ! videoconvert ! videocrop name=cropper ! {}'
+    command_base: str = '{}, width={}, height={}, framerate={}/1, format={} {} ! {}'
     source: dict = {'uvcvideo': 'v4l2src device={device_uri}',
                     'tegra-video': 'nvarguscamerasrc sensor-id={}'}
-    filters: dict = {'YUYV': 'video/x-raw, width={}, height={}, framerate={}/1 ! xvimagesink',
+    filters: dict = {'YUYV': 'video/x-raw, width={}, height={}, framerate={}/1 ! format=YUY2 ! xvimagesink',
                      'H264': 'video/x-h264, width={}, height={}, framerate={}/1, format=H264 ! nvv4l2decoder ! nvvidconv ! xvimagesink sync=false',
                      'MJPG': 'image/jpeg, width={}, height={}, framerate={}/1, format=MJPG ! nvv4l2decoder mjpeg=1 ! nvvidconv ! xvimagesink',
                      'UYVY': 'video/x-raw, width={}, height={}, framerate={}/1, format=UYVY ! xvimagesink'}
+    # Build the gstreamer filter. [0] = media type (caps) [1] = cccc [2] = decoder [3] = output sink
+    filter_types: dict = { 
+                    'YUYV': ['video/x-raw', 'YUY2', '', 'xvimagesink sync={}' ],
+                    'H264': ['video/x-h264', 'H264', '! h264parse ! avdec_h264  ', 'xvimagesink sync={}'],
+                    'MJPG': ['image/jpeg', 'MJPG',   '! nvv4l2decoder mjpeg=1 ! nvvidconv ',  'xvimagesink sync={}'],
+                    'UYVY': ['video/x-raw', 'UYVY' , '',  'xvimagesink sync={}' ] }
 
+    # Build the gstreamer filter. [0] = media type (caps) [1] = cccc [2] = decoder [3] = output sink
+    crop_filter_types: dict = { 
+                    'YUYV': ['video/x-raw', 'YUY2', '! videocrop name=cropper ! videoscale ! video/x-raw, width={}, height={} ! videoconvert ', 'xvimagesink sync={}' ],
+                    'H264': ['video/x-h264', 'H264', '! h264parse ! avdec_h264  ! videocrop name=cropper ', 'xvimagesink sync={}'],
+                    'MJPG': ['image/jpeg', 'MJPG',   '! nvv4l2decoder mjpeg=1 ! nvvidconv ! videocrop name=cropper ',  'xvimagesink sync={}'],
+                    'UYVY': ['video/x-raw', 'UYVY' , '! videocrop name=cropper ! videoscale ! video/x-raw, width={}, height={} ! videoconvert ',  'xvimagesink sync={}' ] }
+# ! videocrop top=162 left=543 bottom=252 right=519 ! videoscale ! video/x-raw,width=1920,height=1080 ! videoconvert 
 
 class Camera_Caps_Controller:
 
@@ -42,9 +62,15 @@ class Camera_Caps_Controller:
         self.size_list = None
         self.gst_source = ""
         self.gst_filters = ""
+
+        """ 
         self.image_width = ""   # Currently selected image width
         self.image_height = ""  # Currently selected image height
-        self.frame_rate = "30"  # Currently select frame rate
+        self.frame_rate = "30"  # Currently selected frame rate
+        self.fourcc = ""        # Currently selected fourcc
+        """
+
+        self.camera_settings = CameraSettings()
 
     def setup(self):
         self.view.setup(self)
@@ -55,6 +81,11 @@ class Camera_Caps_Controller:
                 for uri in camera.uri_list:
                     entry_name = f"{camera.camera_name} on {uri}"
                     self.view.camera_combo_box.addItem(entry_name, uri)
+                    item_index = self.view.camera_combo_box.count()
+                    # Does the camera have associated formats?
+                    formats = self.camera_inspector.camera_formats(uri)
+                    if len(formats) == 0:
+                        self.view.camera_combo_box.model().item(item_index-1).setEnabled(False)
                     # Create a preview window for the camera
                     preview_window: PreviewWindow = self.view.create_preview_window()
                     preview_window.base_title = entry_name
@@ -69,8 +100,9 @@ class Camera_Caps_Controller:
 
     def set_ctl_value(self, setting, value):
         try:
-            success_flag = subprocess.check_output(
+            subprocess.check_output(
                 ["v4l2-ctl", '-d', self.device_uri, '-c', f"{setting}={value}"], encoding='utf-8')
+
         except Exception as exc:
             print(exc)
 
@@ -124,8 +156,8 @@ class Camera_Caps_Controller:
         spin_box.slider = slider
         slider.spin_box = spin_box
 
-        slider.valueChanged.connect(self.onSliderValueChanged)
-        spin_box.valueChanged.connect(self.onSpinBoxValueChanged)
+        slider.valueChanged.connect(self.on_slider_value_changed)
+        spin_box.valueChanged.connect(self.on_spin_box_value_changed)
 
         reset_button = QPushButton('Default')
         reset_button.ctrl_menu = ctrl_menu
@@ -158,7 +190,7 @@ class Camera_Caps_Controller:
             check_box.setChecked(True)
         else:
             check_box.setChecked(False)
-        check_box.toggled.connect(self.check_box_onClicked)
+        check_box.toggled.connect(self.on_check_box_changed)
 
         reset_button = QPushButton('Default')
         reset_button.ctrl_menu = ctrl_menu
@@ -198,7 +230,7 @@ class Camera_Caps_Controller:
             combo_box.setCurrentIndex(lookup[0])
         combo_box_menu_hbox.addWidget(combo_box)
         combo_box_menu_hbox.addStretch()
-        combo_box.currentIndexChanged.connect(self.onComboBoxChanged)
+        combo_box.currentIndexChanged.connect(self.on_combo_box_changed)
 
         reset_button = QPushButton('Default')
         reset_button.ctrl_menu = ctrl_menu
@@ -284,16 +316,21 @@ class Camera_Caps_Controller:
                 self.device_uri)
         if self.camera_formats is not None:
             for camera_format in self.camera_formats:
-                format_name = f"{camera_format.format_name}  -  {camera_format.pixel_format}"
+                format_name = f"{camera_format.pixel_format}"
                 item = QListWidgetItem(format_name)
                 item.camera_format = camera_format
-                # self.view.pixel_format_list.addItem(camera_format.format_name)
                 self.view.pixel_format_list.addItem(item)
         self.setup_camera_info(self.device_uri)
         video_settings = self.camera_inspector.get_camera_stream_settings(
             self.device_uri)
 
-        fourcc = video_settings[0].strip("'")
+        # String is of the format: 'YUYV' (YUYV 4:2:2)
+        try:
+            fourcc = video_settings[0].split("'")[1]
+            self.camera_settings.fourcc = fourcc
+        except Exception as exc:
+            print(video_settings[0])
+            print(exc)
         self.setup_gst_pipeline_source(fourcc)
         # setup the width, height, and frame rate
 
@@ -306,17 +343,42 @@ class Camera_Caps_Controller:
         frame_rate = video_settings[2]
         frame_rate = frame_rate.split(" ", maxsplit=1)[0]
 
-        self.image_width, self.image_height = image_size.split('x')
+        self.camera_settings.image_width, self.camera_settings.image_height = image_size.split('x')
         if frame_rate == '':
             frame_rate = '30'
-        self.frame_rate = frame_rate.split('.')[0]
+        frame_rate = frame_rate.split('.')[0]
+        self.camera_settings.frame_rate = frame_rate
         # Construct gstreamer source pipelne
         preview_command = self.preview_command()
         self.view.line_edit.setText(preview_command)
         self.view.line_edit.setCursorPosition(0)
 
         self.setup_frame_format(pixel_format, image_size, frame_rate)
+        # select the current camera settings
+        self.setup_current_settings([pixel_format, image_size, frame_rate])
         # self.setup_frame_format(fourcc, image_size, frame_rate)
+
+    def set_current_selection(self, list_widget, target_text, match_flag):
+        # Find items with the exact match of the target text
+        items = list_widget.findItems(target_text, match_flag)
+        # If the item is found, set it as the current item
+        if items:
+            list_widget.setCurrentItem(items[0])
+
+    # video_settings are the current settings read from the camera
+    def setup_current_settings(self, video_settings):
+        # Set the format widget
+        fourcc = video_settings[0].split("'")[1]
+
+        items = self.view.pixel_format_list.findItems(fourcc,Qt.MatchContains)
+        if items:
+            self.view.pixel_format_list.setCurrentItem(items[0])
+            # This populates the image size list; fake like we're clicking it to setup other lists
+            self.on_pixel_format_list_clicked(items[0])
+            self.set_current_selection(self.view.image_size_list, video_settings[1],Qt.MatchContains)
+            self.on_image_size_list_clicked(self.view.image_size_list.currentItem())
+            self.set_current_selection(self.view.fps_list, video_settings[2],Qt.MatchContains)
+
 
     def on_pixel_format_list_clicked(self, pixel_format: QListWidgetItem):
         self.view.image_size_list.clear()
@@ -340,16 +402,32 @@ class Camera_Caps_Controller:
         camera = self.get_camera(self.device_uri)
         self.gst_source = ""
         self.gst_filters = ""
-        self.fourcc = fourcc
-        if camera.driver_name == 'tegra-video':
+        self.camera_settings.fourcc = fourcc
+        if camera.driver_name == 'tegra-camrtc-ca':
             sensor_id = self.device_uri.lstrip('/dev/video')
             self.gst_source = f"nvarguscamerasrc sensor-id={sensor_id}"
             self.gst_filters = "video/x-raw(memory:NVMM), width={}, height={}, framerate={}/1 ! nvvidconv ! xvimagesink"
-            self.fourcc = 'NVMM'
+            self.camera_settings.fourcc = 'NVMM'
+            self.camera_settings.media_type = 'video/x-raw(memory:NVMM)'
         elif camera.driver_name == 'uvcvideo':
             self.gst_source = f"v4l2src device={self.device_uri}"
             try:
-                self.gst_filters = Command_Map.filters[fourcc]
+                # Build the gstreamer caps filter
+                # command_base: str = '{}, width={}, height={}, framerate={}/1 ! format={} {} ! {}'
+                # base_command = Command_Map.command_base
+                filter_args = Command_Map.filter_types[fourcc]
+                crop_filter_args = Command_Map.crop_filter_types[fourcc]
+ 
+                # self.gst_filters = Command_Map.filters[fourcc]
+                base_command = Command_Map.command_base.format(filter_args[0], '{}', '{}', '{}', 
+                                     filter_args[1], filter_args[2], filter_args[3])
+                self.gst_filters = base_command
+                crop_command = Command_Map.command_base.format(crop_filter_args[0], '{}', '{}', '{}', 
+                                     crop_filter_args[1], crop_filter_args[2], crop_filter_args[3])
+                self.crop_gst_filters = crop_command
+                self.camera_settings.media_type = filter_args[0]
+
+
             except KeyError:
                 print(f"Unsupported format: {fourcc}")
                 self.gst_filters = ""
@@ -360,7 +438,7 @@ class Camera_Caps_Controller:
         self.view.fps_list.clear()
         image_size_text = image_size.text()
         image_size_text = image_size_text.lstrip('Discrete ')
-        self.image_width, self.image_height = image_size_text.split('x')
+        self.camera_settings.image_width, self.camera_settings.image_height = image_size_text.split('x')
         if self.camera_formats is not None:
             if self.size_list is not None:
                 for frame_size in self.size_list:
@@ -413,12 +491,12 @@ class Camera_Caps_Controller:
                                 for fps in frame_size[1:]:
                                     fps_list_widget = QListWidgetItem(fps)
                                     fps_list.addItem(fps_list_widget)
-                                    if frame_rate is not "" and frame_rate in fps:
+                                    if frame_rate != "" and frame_rate in fps:
                                         fps_list_widget.setSelected(True)
                                         fps_list.scrollToItem(fps_list_widget)
             count -= 1
 
-    def check_box_onClicked(self):
+    def on_check_box_changed(self):
         check_box = self.view.sender()
         ctrl_menu = check_box.ctrl_menu
         if check_box.isChecked():
@@ -426,8 +504,8 @@ class Camera_Caps_Controller:
         else:
             self.set_ctl_value(ctrl_menu.title, 0)
         self.set_control_enabled_states()
-
-    def onSliderValueChanged(self, value):
+        
+    def on_slider_value_changed(self, value):
         slider = self.view.sender()
         ctrl_menu = slider.ctrl_menu
         spin_box = slider.spin_box
@@ -438,12 +516,12 @@ class Camera_Caps_Controller:
         else:
             slider.reset_button.setEnabled(False)
 
-    def onSpinBoxValueChanged(self, value):
+    def on_spin_box_value_changed(self, value):
         spin_box = self.view.sender()
         slider = spin_box.slider
         slider.setValue(value)
 
-    def onComboBoxChanged(self, index):
+    def on_combo_box_changed(self, index):
         combo_box = self.view.sender()
         ctrl_menu = combo_box.ctrl_menu
         menu_entry = ctrl_menu.menu_list[index]
@@ -510,11 +588,14 @@ class Camera_Caps_Controller:
             preview_window.video_widget.setup_pipeline(command_line)
             preview_window.video_widget.start_pipeline()
             # Show the window and bring it to front
-            window_title = f"{preview_window.base_title} - '{self.fourcc}' {self.image_width}x{self.image_height}"
+            window_title = f"{preview_window.base_title} - '{self.camera_settings.fourcc}' {self.camera_settings.image_width}x{self.camera_settings.image_height}"
             preview_window.setWindowTitle(window_title)
             preview_window.show()
             preview_window.activateWindow()
             preview_window.raise_()
+            preview_window.camera_settings = replace(self.camera_settings)
+            print("Setting camera settings to: ")
+            print(generate_capsfilter_string(self.camera_settings))
         return
 
     def copy_button_clicked(self):
@@ -597,15 +678,58 @@ class Camera_Caps_Controller:
         fps_text = fps.text()
         fps_text = fps_text.split("(")[1]
         fps_text = fps_text.split(".")[0]
-        self.frame_rate = fps_text
+        self.camera_settings.frame_rate = fps_text
         # Construct gstreamer
         preview_command = self.preview_command()
         self.view.line_edit.setText(preview_command)
 
+    def on_sync_flag_checkbox_clicked(self, sync_flag_checkbox: QCheckBox):
+        preview_command = self.preview_command()
+        self.view.line_edit.setText(preview_command)
+
+    def create_videocrop_pipeline_element(full_frame_width, full_frame_height, roi_x, roi_y, roi_width, roi_height):
+        """
+        Constructs a GStreamer pipeline string for the videocrop element based on the full frame dimensions and ROI.
+
+        Parameters:
+        full_frame_width (int): Width of the full video frame.
+        full_frame_height (int): Height of the full video frame.
+        roi_x (int): X coordinate of the top-left corner of the ROI.
+        roi_y (int): Y coordinate of the top-left corner of the ROI.
+        roi_width (int): Width of the ROI.
+        roi_height (int): Height of the ROI.
+
+        Returns:
+        str: A string segment of the GStreamer pipeline for the videocrop element.
+        """
+        # Calculate the pixels to remove from each side
+        top = roi_y
+        left = roi_x
+        right = full_frame_width - (roi_x + roi_width)
+        bottom = full_frame_height - (roi_y + roi_height)
+
+        # Construct the pipeline string for the videocrop element
+        crop_pipeline = f"videocrop top={top} left={left} right={right} bottom={bottom}"
+        return crop_pipeline
+
+    
     def preview_command(self):
-        gst_filters = self.gst_filters.format(
-            self.image_width, self.image_height, self.frame_rate)
-        preview_command = f"{self.gst_source} ! {gst_filters}"
+        gst_filters = self.gst_filters
+        sync_value = self.view.sync_flag_checkbox.isChecked()
+        gst_filters = gst_filters.format(
+            self.camera_settings.image_width, self.camera_settings.image_height, self.camera_settings.frame_rate, sync_value)
+        crop_gst_filters = self.crop_gst_filters
+        if self.camera_settings.fourcc == 'YUY2' or self.camera_settings.fourcc == 'YUYV' :
+            crop_gst_filters = crop_gst_filters.format(
+            self.camera_settings.image_width, self.camera_settings.image_height, self.camera_settings.frame_rate, 
+                    self.camera_settings.image_width, self.camera_settings.image_height, sync_value)
+        else:
+            crop_gst_filters = crop_gst_filters.format(
+                self.camera_settings.image_width, self.camera_settings.image_height, self.camera_settings.frame_rate, sync_value)
+        if True: 
+            preview_command = f"{self.gst_source} ! {crop_gst_filters}"
+        else:
+            preview_command = f"{self.gst_source} ! {gst_filters}"
         return preview_command
 
     def app_quitting(self):

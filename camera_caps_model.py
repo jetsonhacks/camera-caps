@@ -23,8 +23,8 @@ class Camera_Info:
     camera_name: str = ""
     bus_address: str = ""
     # Some cameras have multiple uris, such as depth cameras
-    uri_list: list = field(default_factory=list)
-    ctrl_menu_list: list = field(default_factory=list)
+    uri_list: List[str] = field(default_factory=list)
+    ctrl_menu_list: List[str] = field(default_factory=list)
     driver_name: str = ""
     driver_version: str = ""
     capabilities_code: str = ""
@@ -47,7 +47,7 @@ class Control_Menu_Entry:
 class Camera_Format:
 
     attr_names: ClassVar = {'Index': 'index', 'Type': 'type',
-                            'Pixel Format': 'pixel_format', 'Name': 'format_name'}
+                            'Pixel Format': 'pixel_format'}
     size_names: ClassVar = {'Size': 'size', 'Interval': 'interval'}
 
     index: str = ""
@@ -98,6 +98,68 @@ class Camera_Inspector:
             to_return = None
         return to_return
 
+    def get_camera_info(self, camera: Camera_Info):
+        try:
+            # We use the first uri in the camera list to get the device info
+            # That may be incorrect, cameras that have multiple URIs (like depth cameras)
+            # may have different info for each stream ...
+            uri = camera.uri_list[0]
+            if uri is None:
+                print(f"Unable to find camera device URI: {camera.title}")
+                return
+            camera_info = subprocess.check_output(
+                ["v4l2-ctl", "--info", "-d", uri], encoding='utf-8')
+        except Exception as exc:
+            # TODO Propogate Exception
+            print(f"Unable to get device info: {exc}")
+        # Parse everything into a dictionary
+        info_dict = {'capabilities_list': [], 'device_caps_list': []}
+        for line in camera_info.splitlines():
+            if len(line) == 0:
+                continue
+            try:
+                key, value = line.split(':', maxsplit=1)
+                info_dict[key.strip()] = value.strip()
+            except ValueError:
+                # This is a capability; key indicates Regular or Device Caps
+                if key.strip() == 'Capabilities':
+                    info_dict['capabilities_list'].append(line.strip())
+                elif key.strip() == 'Device Caps':
+                    info_dict['device_caps_list'].append(line.strip())
+                else:
+                    print(f"Unknown line: {line}")
+        try:
+            camera.driver_name = info_dict['Driver name']
+            camera.driver_version = info_dict['Driver version']
+            camera.capabilities_code = info_dict['Capabilities']
+            camera.capabilities_list = info_dict['capabilities_list']
+            camera.device_caps_code = info_dict['Device Caps']
+            camera.device_caps_list = info_dict['device_caps_list']
+        except Exception as exc:
+            # TODO
+            print(f"Issue with setting device info: {exc}")
+
+    def parse_device(self,device_entry) -> Camera_Info:
+        try:
+            lines = device_entry.strip().split("\n")
+            split = lines[0].rfind(" (")
+            camera_name = lines[0][:split]
+            # Remove the following ): from the bus address string
+            bus_address = lines[0][split+2:-2]
+            uri_list = []
+            for line in lines[1:]:
+                if line.startswith("\t/dev/video"):
+                    uri_list.append(line.strip())
+            return Camera_Info(camera_name, bus_address, uri_list)
+        except Exception as e:
+            print(f"Error parsing device entry: {device_entry}. Exception: {e}")
+            return None
+
+    def parse_device_list(self,device_list) -> List:
+        entries = device_list.strip().split('\n\n')
+        entries_with_video = [entry.strip() for entry in entries if '/dev/video' in entry]
+        return entries_with_video
+
     def list_cameras(self) -> List:
         """ Return a list of cameras, if any"""
         to_return = []
@@ -109,22 +171,27 @@ class Camera_Inspector:
             list_devices = None
         if list_devices is not None:
             camera = None
+            # Omit media0
             # For example: HD Pro Webcam C920 (usb-3610000.xhci-2.1.3.1):
             #	                /dev/video0
-            for line in list_devices.splitlines():
-                if len(line) == 0:
-                    continue
-                if line.rfind("):") != -1:
-                    bus_index = line.rfind('(')
-                    camera_name = line[0:bus_index]
-                    bus_address = line[bus_index+1:(len(line)-2)]
-                    camera = Camera_Info(camera_name.rstrip(), bus_address)
-                    to_return.append(camera)
-                else:
-                    uri_string = line.lstrip()
-                    camera.uri_list.append(uri_string)
+            #                  /dev/media0
+            # v4l2-ctl in print_devices formats this as:
+            # 	if (cards[bus_info].empty())
+			#      cards[bus_info] += std::string(reinterpret_cast<char *>(vcap.card))
+			#    	+ " (" + bus_info + "):\n";
+		    #       cards[bus_info] += "\t" + file;
+		    #       cards[bus_info] += "\n";
+	        #    }
+
+            camera_list = self.parse_device_list(list_devices)
+            for camera_entry in camera_list:
+                camera_info=self.parse_device(camera_entry)
+                to_return.append(camera_info)
+                for uri_string in camera_info.uri_list :
                     ctrl_list_menus = self.get_control_list_menus(uri_string)
-                    camera.ctrl_menu_list.append(ctrl_list_menus)
+                    camera_info.ctrl_menu_list.append(ctrl_list_menus)
+
+
         # Get the extended info for each camera
         for camera in to_return:
             self.get_camera_info(camera)
@@ -172,6 +239,7 @@ class Camera_Inspector:
             # TODO
             print(f"Issue with setting device info: {exc}")
 
+
     def camera_formats(self, device_uri: str):
         """ Return the camera formats"""
         to_return = []
@@ -181,7 +249,8 @@ class Camera_Inspector:
         except Exception as exc:
             print(exc)
             formats = None
-
+        # Each format begins with [number]
+        pattern = r"^\[\d+\]"
         if formats is not None:
             camera_format = None
             for line in formats.splitlines():
@@ -192,10 +261,13 @@ class Camera_Inspector:
                 key = key.strip()
                 value = value.strip()
                 # print(f"Key: {key} : Value: {value}")
-                if key == 'Index':
+                match = re.match(pattern, key)
+                if match:
                     camera_format = Camera_Format()
                     to_return.append(camera_format)
-                if camera_format is not None:
+                    # Add the name of the format
+                    camera_format.set_attribute('Pixel Format',value)
+                elif camera_format is not None:
                     camera_format.set_attribute(key, value)
 
         return to_return
