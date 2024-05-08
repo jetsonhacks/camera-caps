@@ -21,6 +21,7 @@ Not all cameras provide a V4L2 interface. Some cameras have proprietary interfac
 ### Installation
 
 ```
+sudo -v
 sudo apt update
 sudo apt install python3-pip
 pip3 install dataclasses
