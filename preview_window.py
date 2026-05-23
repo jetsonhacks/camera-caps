@@ -178,7 +178,13 @@ class PreviewWindow(QMainWindow):
         print("Escape key was pressed!")
         # Reset the videocrop
         pipeline = self.video_widget.pipeline
+        if pipeline is None:
+            print("Current preview pipeline is not available")
+            return
         cropper = pipeline.get_by_name("cropper")
+        if cropper is None:
+            print("Current preview pipeline does not expose a cropper element")
+            return
         cropper.set_property('top', 0)
         cropper.set_property('left', 0)
         cropper.set_property('bottom', 0)
@@ -334,6 +340,9 @@ class PreviewWindow(QMainWindow):
     
     def set_roi ( self, screen_rect: QRect) :
         pipeline = self.video_widget.pipeline
+        if pipeline is None:
+            print("Current preview pipeline is not available")
+            return
         video_width = int(self.camera_settings.image_width)
         video_height = int(self.camera_settings.image_height)
 
@@ -343,6 +352,9 @@ class PreviewWindow(QMainWindow):
         # print(f"Translated coordinates: {translated_coordinates}")
         # Retrieve the videocrop element
         cropper = pipeline.get_by_name("cropper")
+        if cropper is None:
+            print("Current preview pipeline does not expose a cropper element")
+            return
         # Calculate the scale factor
         # scale_factor = self.calculate_scale_to_fit(translated_coordinates[2], translated_coordinates[3], self.width(), self.height())
         # print(f"Scale factor: {scale_factor}")
@@ -386,7 +398,12 @@ class VideoWidget(QMainWindow):
 
         # ToDo - Try Except block, check to see if string parsed
         print(launch_cmd)
-        self.pipeline = Gst.parse_launch(launch_cmd)
+        try:
+            self.pipeline = Gst.parse_launch(launch_cmd)
+        except Exception as exc:
+            print(f"Unable to create preview pipeline: {exc}")
+            self.pipeline = None
+            return False
         self.cmd_line = launch_cmd
 
         bus = self.pipeline.get_bus()
@@ -394,6 +411,7 @@ class VideoWidget(QMainWindow):
         bus.enable_sync_message_emission()
         bus.connect("message", self.on_message)
         bus.connect("sync-message::element", self.on_sync_message)
+        return True
 
     def on_message(self, bus, message):
         message_type = message.type
@@ -413,13 +431,22 @@ class VideoWidget(QMainWindow):
             message.src.set_window_handle(self.winId)
 
     def start_pipeline(self):
+        if self.pipeline is None:
+            return False
         self.pipeline.set_state(Gst.State.PLAYING)
+        return True
 
     def stop_pipeline(self):
+        if self.pipeline is None:
+            return False
         self.pipeline.set_state(Gst.State.NULL)
+        return True
 
     def pause_pipeline(self):
+        if self.pipeline is None:
+            return False
         self.pipeline.set_state(Gst.State.PAUSED)
+        return True
 
     
 class TransparentOverlay(QWidget):
@@ -515,4 +542,3 @@ class TransparentOverlay(QWidget):
             return
         # Call the base class method to ensure proper handling
         super().resizeEvent(event)
-
