@@ -21,12 +21,13 @@ Not all cameras provide a V4L2 interface. Some cameras have proprietary interfac
 ### Installation
 
 ```
-$ sudo apt update
-$ sudo apt install python3-pip
-$ pip3 install dataclasses
+sudo apt update
+sudo apt install python3-pip
+pip3 install dataclasses
 # Install v4l2-ctl
-$ sudo apt install v4l-utils
-$ sudo apt install python3-pyqt5
+sudo apt install v4l-utils
+sudo apt install python3-pyqt5
+sudo apt install python3-gi gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0
 ```
 ###  Running the Program
 Before running the program, first make sure that the cameras you want to examine are attached. The program does not detect dynamic attachment. If you plug/unplug a camera, restart the program. Also note that USB cameras do not have a guaranteed address in their /dev/videoX designation. In other words, the address may change when the machine reboots or other cameras are added. To run:

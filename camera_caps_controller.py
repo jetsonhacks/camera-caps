@@ -19,33 +19,8 @@ from preview_window import PreviewWindow
 
 from camera_caps_dataclasses import CameraSettings, generate_capsfilter_string
 from dataclasses import replace
+from camera_caps.gst.pipeline_builder import GstPipelineBuilder
 
-
-
-class Command_Map:
-    # Build the gstreamer filter. [0] = media type (caps) [1] = cccc [2] = decoder [3] = output sink
-    # command_base: str = '{}, width={}, height={}, framerate={}/1, format={} {} ! videoconvert ! videocrop name=cropper ! {}'
-    command_base: str = '{}, width={}, height={}, framerate={}/1, format={} {} ! {}'
-    source: dict = {'uvcvideo': 'v4l2src device={device_uri}',
-                    'tegra-video': 'nvarguscamerasrc sensor-id={}'}
-    filters: dict = {'YUYV': 'video/x-raw, width={}, height={}, framerate={}/1 ! format=YUY2 ! xvimagesink',
-                     'H264': 'video/x-h264, width={}, height={}, framerate={}/1, format=H264 ! nvv4l2decoder ! nvvidconv ! xvimagesink sync=false',
-                     'MJPG': 'image/jpeg, width={}, height={}, framerate={}/1, format=MJPG ! nvv4l2decoder mjpeg=1 ! nvvidconv ! xvimagesink',
-                     'UYVY': 'video/x-raw, width={}, height={}, framerate={}/1, format=UYVY ! xvimagesink'}
-    # Build the gstreamer filter. [0] = media type (caps) [1] = cccc [2] = decoder [3] = output sink
-    filter_types: dict = { 
-                    'YUYV': ['video/x-raw', 'YUY2', '', 'xvimagesink sync={}' ],
-                    'H264': ['video/x-h264', 'H264', '! h264parse ! avdec_h264  ', 'xvimagesink sync={}'],
-                    'MJPG': ['image/jpeg', 'MJPG',   '! nvv4l2decoder mjpeg=1 ! nvvidconv ',  'xvimagesink sync={}'],
-                    'UYVY': ['video/x-raw', 'UYVY' , '',  'xvimagesink sync={}' ] }
-
-    # Build the gstreamer filter. [0] = media type (caps) [1] = cccc [2] = decoder [3] = output sink
-    crop_filter_types: dict = { 
-                    'YUYV': ['video/x-raw', 'YUY2', '! videocrop name=cropper ! videoscale ! video/x-raw, width={}, height={} ! videoconvert ', 'xvimagesink sync={}' ],
-                    'H264': ['video/x-h264', 'H264', '! h264parse ! avdec_h264  ! videocrop name=cropper ', 'xvimagesink sync={}'],
-                    'MJPG': ['image/jpeg', 'MJPG',   '! nvv4l2decoder mjpeg=1 ! nvvidconv ! videocrop name=cropper ',  'xvimagesink sync={}'],
-                    'UYVY': ['video/x-raw', 'UYVY' , '! videocrop name=cropper ! videoscale ! video/x-raw, width={}, height={} ! videoconvert ',  'xvimagesink sync={}' ] }
-# ! videocrop top=162 left=543 bottom=252 right=519 ! videoscale ! video/x-raw,width=1920,height=1080 ! videoconvert 
 
 class Camera_Caps_Controller:
 
@@ -62,6 +37,9 @@ class Camera_Caps_Controller:
         self.size_list = None
         self.gst_source = ""
         self.gst_filters = ""
+        self.crop_gst_filters = ""
+        self.gst_pipeline_builder = GstPipelineBuilder()
+        self.gst_pipeline_template = None
 
         """ 
         self.image_width = ""   # Currently selected image width
@@ -402,37 +380,22 @@ class Camera_Caps_Controller:
         camera = self.get_camera(self.device_uri)
         self.gst_source = ""
         self.gst_filters = ""
+        self.crop_gst_filters = ""
+        self.gst_pipeline_template = None
         self.camera_settings.fourcc = fourcc
-        if camera.driver_name == 'tegra-camrtc-ca':
-            sensor_id = self.device_uri.lstrip('/dev/video')
-            self.gst_source = f"nvarguscamerasrc sensor-id={sensor_id}"
-            self.gst_filters = "video/x-raw(memory:NVMM), width={}, height={}, framerate={}/1 ! nvvidconv ! xvimagesink"
-            self.camera_settings.fourcc = 'NVMM'
-            self.camera_settings.media_type = 'video/x-raw(memory:NVMM)'
-        elif camera.driver_name == 'uvcvideo':
-            self.gst_source = f"v4l2src device={self.device_uri}"
-            try:
-                # Build the gstreamer caps filter
-                # command_base: str = '{}, width={}, height={}, framerate={}/1 ! format={} {} ! {}'
-                # base_command = Command_Map.command_base
-                filter_args = Command_Map.filter_types[fourcc]
-                crop_filter_args = Command_Map.crop_filter_types[fourcc]
- 
-                # self.gst_filters = Command_Map.filters[fourcc]
-                base_command = Command_Map.command_base.format(filter_args[0], '{}', '{}', '{}', 
-                                     filter_args[1], filter_args[2], filter_args[3])
-                self.gst_filters = base_command
-                crop_command = Command_Map.command_base.format(crop_filter_args[0], '{}', '{}', '{}', 
-                                     crop_filter_args[1], crop_filter_args[2], crop_filter_args[3])
-                self.crop_gst_filters = crop_command
-                self.camera_settings.media_type = filter_args[0]
+        try:
+            self.gst_pipeline_template = self.gst_pipeline_builder.build_template(
+                camera.driver_name, self.device_uri, fourcc
+            )
+        except ValueError as exc:
+            print(exc)
+            return
 
-
-            except KeyError:
-                print(f"Unsupported format: {fourcc}")
-                self.gst_filters = ""
-        else:
-            print("Unknown camera driver type")
+        self.gst_source = self.gst_pipeline_template.source
+        self.gst_filters = self.gst_pipeline_template.filters
+        self.crop_gst_filters = self.gst_pipeline_template.crop_filters
+        self.camera_settings.fourcc = self.gst_pipeline_template.fourcc
+        self.camera_settings.media_type = self.gst_pipeline_template.media_type
 
     def on_image_size_list_clicked(self, image_size: QListWidgetItem):
         self.view.fps_list.clear()
@@ -714,26 +677,16 @@ class Camera_Caps_Controller:
 
     
     def preview_command(self):
-        gst_filters = self.gst_filters
         sync_value = self.view.sync_flag_checkbox.isChecked()
-        gst_filters = gst_filters.format(
-            self.camera_settings.image_width, self.camera_settings.image_height, self.camera_settings.frame_rate, sync_value)
-        crop_gst_filters = self.crop_gst_filters
-        if self.camera_settings.fourcc == 'YUY2' or self.camera_settings.fourcc == 'YUYV' :
-            crop_gst_filters = crop_gst_filters.format(
-            self.camera_settings.image_width, self.camera_settings.image_height, self.camera_settings.frame_rate, 
-                    self.camera_settings.image_width, self.camera_settings.image_height, sync_value)
-        else:
-            crop_gst_filters = crop_gst_filters.format(
-                self.camera_settings.image_width, self.camera_settings.image_height, self.camera_settings.frame_rate, sync_value)
-        if True: 
-            preview_command = f"{self.gst_source} ! {crop_gst_filters}"
-        else:
-            preview_command = f"{self.gst_source} ! {gst_filters}"
-        return preview_command
+        return self.gst_pipeline_builder.build_preview_command(
+            self.gst_pipeline_template,
+            self.camera_settings.image_width,
+            self.camera_settings.image_height,
+            self.camera_settings.frame_rate,
+            sync_value,
+        )
 
     def app_quitting(self):
         """ The application is quitting, close any camera preview windows"""
         """ This is handled in the main script """
         pass
-
