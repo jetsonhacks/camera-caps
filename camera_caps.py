@@ -10,10 +10,7 @@
 import sys
 from dataclasses import dataclass
 
-import gi
-gi.require_version('Gst', '1.0')
-gi.require_version('GstVideo', '1.0')
-from gi.repository import Gst
+from camera_caps.gst.environment import import_gst
 from PyQt5.QtCore import QSize
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout,
@@ -24,6 +21,8 @@ from PyQt5.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout,
 from camera_caps_controller import Camera_Caps_Controller
 from preview_window import PreviewWindow
 
+
+Gst, _GstVideo = import_gst()
 
 
 @dataclass

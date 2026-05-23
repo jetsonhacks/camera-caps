@@ -12,13 +12,10 @@ from PyQt5.QtCore import qInstallMessageHandler, QtDebugMsg, QtWarningMsg, QtCri
 
 import time
 
-import gi
-from gi.repository import Gst, GstVideo
-
-gi.require_version('Gst', '1.0')
-gi.require_version('GstVideo', '1.0')
-
+from camera_caps.gst.environment import import_gst
 import camera_caps_dataclasses
+
+Gst, GstVideo = import_gst()
 
 def messageFilter(mode, context, message):
     if "Overlay is ready" in message:
@@ -518,5 +515,4 @@ class TransparentOverlay(QWidget):
             return
         # Call the base class method to ensure proper handling
         super().resizeEvent(event)
-
 
